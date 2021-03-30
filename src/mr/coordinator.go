@@ -1,6 +1,9 @@
 package mr
 
-import "log"
+import (
+	"log"
+	"time"
+)
 import "net"
 import "os"
 import "net/rpc"
@@ -9,7 +12,19 @@ import "net/http"
 
 type Coordinator struct {
 	// Your definitions here.
-
+	// number of map worker and reduce worker
+	mworkers int `json:"-"`
+	rworkers int `json:"-"`
+	// map worker
+	mapWorkerDone []bool `json:"-"`
+	// 用time.time可以用来进行时间上的控制
+	mapWorkerRest []time.Time `json:"-"`
+	// reduce worker
+	reduceWorkerDone []bool `json:"-"`
+	// 用time.time可以用来进行时间上的控制
+	reduceWorkerRest []time.Time `json:"-"`
+	// 结束标志
+	shutdown bool `json:"-"`
 }
 
 // Your code here -- RPC handlers for the worker to call.

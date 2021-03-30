@@ -22,7 +22,27 @@ type ExampleReply struct {
 	Y int
 }
 
+type TaskType int
+
+const (
+	MapTask = TaskType(1)
+	ReduceTask = TaskType(2)
+)
+
 // Add your RPC definitions here.
+// 请求任务
+type GetTaskArg struct {}
+
+type GetTaskResp struct {
+	TaskType TaskType
+	TaskId int
+	// map work需要读的文件
+	MapFile string
+	// map 需要写入的文件
+	WriteMapTask int
+	// reduce 读几个中间文件
+	ReduceIntermediaTasks int
+}
 
 
 // Cook up a unique-ish UNIX-domain socket name

@@ -2,6 +2,7 @@ package mr
 
 import (
 	"log"
+	"sync"
 	"time"
 )
 import "net"
@@ -12,9 +13,11 @@ import "net/http"
 
 type Coordinator struct {
 	// Your definitions here.
+	// map files
+	mapFiles []string
 	// number of map worker and reduce worker
-	mworkers int `json:"-"`
-	rworkers int `json:"-"`
+	mapWorkers int `json:"-"`
+	reduceWorkers int `json:"-"`
 	// map worker
 	mapWorkerDone []bool `json:"-"`
 	// 用time.time可以用来进行时间上的控制
@@ -25,6 +28,10 @@ type Coordinator struct {
 	reduceWorkerRest []time.Time `json:"-"`
 	// 结束标志
 	shutdown bool `json:"-"`
+	// mutex
+	mutex *sync.Mutex
+	// condition
+	cond sync.Cond
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -69,16 +76,70 @@ func (c *Coordinator) Done() bool {
 	return ret
 }
 
+// 调度worker
+func (c *Coordinator) HandleAssignTask(req *GetTaskArg, reply *GetTaskResp) (err error) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	// 返回有多少map worker和reduce worker，用于临时文件的生成
+	reply.ReduceIntermediaTasks = c.reduceWorkers
+	reply.WriteMapTask = c.mapWorkers
+	// 先分配map work
+	for {
+		mapDone := true
+		// 遍历所有worker，给已完成任务的worker分配任务
+		for m, done := range c.mapWorkerDone {
+		}
+		// 当所有任务都未完成，则等待, 否则执行reduce worker
+		if !mapDone {
+			// wait
+		} else {
+			break
+		}
+	}
+	// 再分配reduce work
+	for {
+		reduceDone := true
+		// 遍历所有worker，给已完成任务的worker分配任务
+		for r, done := range c.reduceWorkerDone {
+		}
+		// 当所有任务都未完成，则等待, 否则执行map worker
+		if !reduceDone {
+			// wait
+		} else {
+			break
+		}
+	}
+	// 所有任务执行完成
+	reply.TaskType = DoneTask
+	c.shutdown = true
+	return
+}
+
+// 任务结束
+func (c *Coordinator) HandleFinishedTask(req *TaskFinishArg, reply *TaskFinishedResp) (err error) {
+	switch req.TaskType {
+	case MapTask :
+	case ReduceTask:
+	default:
+	}
+	return
+}
+
 //
 // create a Coordinator.
 // main/mrcoordinator.go calls this function.
 // nReduce is the number of reduce tasks to use.
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
-	c := Coordinator{}
-
-	// Your code here.
-
+	mWorkers := len(files)
+	c := Coordinator{
+		mapWorkers: mWorkers,
+		reduceWorkers: nReduce,
+		mapWorkerDone: make([]bool, mWorkers),
+		mapWorkerRest: make([]time.Time, mWorkers),
+		reduceWorkerDone: make([]bool, nReduce),
+		reduceWorkerRest: make([]time.Time, nReduce),
+	}
 
 	c.server()
 	return &c

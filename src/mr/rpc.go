@@ -27,6 +27,7 @@ type TaskType int
 const (
 	MapTask = TaskType(1)
 	ReduceTask = TaskType(2)
+	DoneTask = TaskType(3)
 )
 
 // Add your RPC definitions here.
@@ -44,6 +45,14 @@ type GetTaskResp struct {
 	ReduceIntermediaTasks int
 }
 
+// 任务结束通知
+type TaskFinishArg struct {
+	// 任务类型
+	TaskType TaskType
+	TaskId int
+}
+
+type TaskFinishedResp struct {}
 
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the coordinator.

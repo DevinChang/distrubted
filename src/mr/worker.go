@@ -25,6 +25,8 @@ func ihash(key string) int {
 }
 
 
+
+
 //
 // main/mrworker.go calls this function.
 //
@@ -32,6 +34,21 @@ func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
 	// Your worker implementation here.
+	// 死循环用来不断接收任务
+	for {
+		taskArg := GetTaskArg{}
+		taskReply := GetTaskResp{}
+		call("Coordinate.HandleAssignTask", taskArg, taskReply)
+		switch taskReply.TaskType {
+		case MapTask:
+			mapf("", "")
+		case ReduceTask:
+			var taskStr []string
+			reducef("", taskStr)
+		default:
+
+		}
+	}
 
 	// uncomment to send the Example RPC to the coordinator.
 	// CallExample()

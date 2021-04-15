@@ -1,6 +1,11 @@
 package mr
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"os"
+)
 import "log"
 import "net/rpc"
 import "hash/fnv"
@@ -24,6 +29,56 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
+func mapTask(mapf func(string,string) []KeyValue, mWorkers, rWorkers int, filename string) {
+	// read file
+	file, err := os.Open(filename)
+	if err != nil {
+		DLog("open file(%s) error", filename)
+		return
+	}
+	content, err := ioutil.ReadAll(file)
+	if err != nil {
+		DLog("read file(%s) error", filename)
+		return
+	}
+	file.Close()
+	// exec main map logic
+	kv := mapf(filename, string(content))
+	// create temporary file
+	tmpFiles := []*os.File{}
+	tmpFileNames := []string{}
+	encoder := []*json.Encoder{}
+	for r := 0; r < rWorkers; r++ {
+		tmpFile, err := ioutil.TempFile("","")
+		if err != nil {
+			DLog("can not create tmpfile")
+			return
+		}
+		tmpFiles = append(tmpFiles, tmpFile)
+		tmpFileNames = append(tmpFileNames, tmpFile.Name())
+		enc := json.NewEncoder(tmpFile)
+		encoder = append(encoder, enc)
+	}
+	// 将map的文件写入到临时文件中去
+	for _, item := range kv {
+		// 有n个reduce worker，就需要取模
+		r := ihash(item.Key) % rWorkers
+		encoder[r].Encode(&item)
+	}
+	// 关闭临时文件
+	for _, tmp := range tmpFiles {
+		tmp.Close()
+	}
+	// rename
+	for r := 0; r < rWorkers; r++ {
+		reName(tmpFileNames[r], mWorkers, r)
+	}
+}
+
+func reduceTask(reducef func(string, []string) string, mWorkders, rWorkers int) {
+
+}
+
 
 
 
@@ -41,7 +96,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		call("Coordinate.HandleAssignTask", taskArg, taskReply)
 		switch taskReply.TaskType {
 		case MapTask:
-			mapf("", "")
+
 		case ReduceTask:
 			var taskStr []string
 			reducef("", taskStr)

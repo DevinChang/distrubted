@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"sort"
 )
 import "log"
 import "net/rpc"
@@ -18,6 +19,21 @@ type KeyValue struct {
 	Key   string
 	Value string
 }
+
+type ByKey []KeyValue
+
+func (b ByKey) Len() int {
+	return len(b)
+}
+
+func (b ByKey) Swap(i, j int) {
+	b[i], b[j] = b[j], b[i]
+}
+
+func (b ByKey) Less(i, j int) bool {
+	return b[i].Key < b[j].Key
+}
+
 
 //
 // use ihash(key) % NReduce to choose the reduce
@@ -76,7 +92,49 @@ func mapTask(mapf func(string,string) []KeyValue, mWorkers, rWorkers int, filena
 }
 
 func reduceTask(reducef func(string, []string) string, mWorkders, rWorkers int) {
-
+	// 获取所有kv
+	kvs := []KeyValue{}
+	for m := 0; m < mWorkders; m++ {
+		rFileName := getIntermediateFile(m, rWorkers)
+		rfile, err := os.Open(rFileName)
+		if err != nil {
+			DLog("open rfile error(%+v)", err)
+			return
+		}
+		dec := json.NewDecoder(rfile)
+		for {
+			var kv KeyValue
+			if err = dec.Decode(&kv); err != nil {
+				break
+			}
+			kvs = append(kvs, kv)
+		}
+	}
+	// reduce key
+	sort.Sort(ByKey(kvs))
+	tmpFile, err := ioutil.TempFile("", "")
+	if err != nil {
+		DLog("create reduce tmp file error(%+v)", err)
+		return
+	}
+	tmpFileName := tmpFile.Name()
+	keyStart := 0
+	for keyStart < len(kvs) {
+		keyEnd := keyStart + 1
+		for keyEnd < len(kvs) && kvs[keyEnd].Key == kvs[keyStart].Key {
+			keyEnd++
+		}
+		values := []string{}
+		for k := keyStart; k < keyEnd; k++ {
+			values = append(values, kvs[k].Value)
+		}
+		output := reducef(kvs[keyStart].Key, values)
+		// this is the correct format for each line of Reduce output.
+		fmt.Fprintf(tmpFile, "%v %v\n", kvs[keyStart].Key, output)
+		keyStart = keyEnd
+	}
+	renameReduceFile(tmpFileName, rWorkers)
+	tmpFile.Close()
 }
 
 
@@ -96,17 +154,23 @@ func Worker(mapf func(string, string) []KeyValue,
 		call("Coordinate.HandleAssignTask", taskArg, taskReply)
 		switch taskReply.TaskType {
 		case MapTask:
-
+			mapTask(mapf, taskReply.TaskId, taskReply.ReduceIntermediaTasks, taskReply.MapFile)
 		case ReduceTask:
-			var taskStr []string
-			reducef("", taskStr)
+			reduceTask(reducef, taskReply.WriteMapTask, taskReply.ReduceIntermediaTasks)
+		case DoneTask:
+			os.Exit(0)
 		default:
-
+			DLog("Error Task Type: %d", taskReply.TaskType)
+			return
+		}// 任务完成
+		finishArg := TaskFinishArg{
+			TaskType: taskReply.TaskType,
+			TaskId: taskReply.TaskId,
 		}
+		finishReply := TaskFinishedResp{}
+		call("Coordinate.HandleFinishedTask", finishArg, finishReply)
 	}
 
-	// uncomment to send the Example RPC to the coordinator.
-	// CallExample()
 
 }
 

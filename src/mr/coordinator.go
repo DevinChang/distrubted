@@ -88,10 +88,22 @@ func (c *Coordinator) HandleAssignTask(req *GetTaskArg, reply *GetTaskResp) (err
 		mapDone := true
 		// 遍历所有worker，给已完成任务的worker分配任务
 		for m, done := range c.mapWorkerDone {
+			//
+			if !done {
+				if c.mapWorkerRest[m].IsZero() || time.Since(c.mapWorkerRest[m]).Seconds() > 10 {
+					reply.TaskType = MapTask
+					reply.TaskId = m
+					reply.MapFile = c.mapFiles[m]
+					c.mapWorkerRest[m] = time.Now()
+					return nil
+				}
+			}
+
 		}
 		// 当所有任务都未完成，则等待, 否则执行reduce worker
 		if !mapDone {
 			// wait
+			c.cond.Wait()
 		} else {
 			break
 		}
@@ -101,10 +113,21 @@ func (c *Coordinator) HandleAssignTask(req *GetTaskArg, reply *GetTaskResp) (err
 		reduceDone := true
 		// 遍历所有worker，给已完成任务的worker分配任务
 		for r, done := range c.reduceWorkerDone {
+			if !done {
+				if c.reduceWorkerRest[r].IsZero() || time.Since(c.reduceWorkerRest[r]).Seconds() > 10 {
+					reply.TaskType = ReduceTask
+					reply.TaskId = r
+					c.reduceWorkerRest[r] = time.Now()
+				} else {
+					reduceDone = false
+				}
+			}
+
 		}
 		// 当所有任务都未完成，则等待, 否则执行map worker
 		if !reduceDone {
 			// wait
+			c.cond.Wait()
 		} else {
 			break
 		}
@@ -117,11 +140,17 @@ func (c *Coordinator) HandleAssignTask(req *GetTaskArg, reply *GetTaskResp) (err
 
 // 任务结束
 func (c *Coordinator) HandleFinishedTask(req *TaskFinishArg, reply *TaskFinishedResp) (err error) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
 	switch req.TaskType {
 	case MapTask :
+		c.mapWorkerDone[req.TaskId] = true
 	case ReduceTask:
+		c.reduceWorkerDone[req.TaskId] = true
 	default:
+		DLog("Invalid TaskType:%d", req.TaskType)
 	}
+	c.cond.Broadcast()
 	return
 }
 
@@ -140,7 +169,14 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 		reduceWorkerDone: make([]bool, nReduce),
 		reduceWorkerRest: make([]time.Time, nReduce),
 	}
-
+	go func() {
+		for {
+			c.mutex.Lock()
+			c.cond.Broadcast()
+			c.mutex.Unlock()
+			time.Sleep(time.Second)
+		}
+	}
 	c.server()
 	return &c
 }

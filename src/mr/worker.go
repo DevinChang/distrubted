@@ -160,7 +160,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		case DoneTask:
 			os.Exit(0)
 		default:
-			DLog("Error Task Type: %d", taskReply.TaskType)
+			DLog("Invalid Task Type: %d", taskReply.TaskType)
 			return
 		}// 任务完成
 		finishArg := TaskFinishArg{

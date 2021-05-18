@@ -31,7 +31,7 @@ type Coordinator struct {
 	// mutex
 	mutex *sync.Mutex
 	// condition
-	cond sync.Cond
+	cond *sync.Cond
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -68,12 +68,9 @@ func (c *Coordinator) server() {
 // if the entire job has finished.
 //
 func (c *Coordinator) Done() bool {
-	ret := false
-
-	// Your code here.
-
-
-	return ret
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	return c.shutdown
 }
 
 // 调度worker
@@ -166,9 +163,12 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 		reduceWorkers: nReduce,
 		mapWorkerDone: make([]bool, mWorkers),
 		mapWorkerRest: make([]time.Time, mWorkers),
+		mapFiles: make([]string, mWorkers),
 		reduceWorkerDone: make([]bool, nReduce),
 		reduceWorkerRest: make([]time.Time, nReduce),
+		mutex: &sync.Mutex{},
 	}
+	c.cond = sync.NewCond(c.mutex)
 	go func() {
 		for {
 			c.mutex.Lock()
@@ -176,7 +176,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 			c.mutex.Unlock()
 			time.Sleep(time.Second)
 		}
-	}
+	}()
 	c.server()
 	return &c
 }

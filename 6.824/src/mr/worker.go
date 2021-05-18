@@ -151,7 +151,7 @@ func Worker(mapf func(string, string) []KeyValue,
 	for {
 		taskArg := GetTaskArg{}
 		taskReply := GetTaskResp{}
-		call("Coordinate.HandleAssignTask", taskArg, taskReply)
+		call("Coordinator.HandleAssignTask", &taskArg, &taskReply)
 		switch taskReply.TaskType {
 		case MapTask:
 			mapTask(mapf, taskReply.TaskId, taskReply.ReduceIntermediaTasks, taskReply.MapFile)
@@ -168,7 +168,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			TaskId: taskReply.TaskId,
 		}
 		finishReply := TaskFinishedResp{}
-		call("Coordinate.HandleFinishedTask", finishArg, finishReply)
+		call("Coordinator.HandleFinishedTask", &finishArg, &finishReply)
 	}
 
 

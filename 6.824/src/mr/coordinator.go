@@ -163,7 +163,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 		reduceWorkers: nReduce,
 		mapWorkerDone: make([]bool, mWorkers),
 		mapWorkerRest: make([]time.Time, mWorkers),
-		mapFiles: make([]string, mWorkers),
+		mapFiles: files,
 		reduceWorkerDone: make([]bool, nReduce),
 		reduceWorkerRest: make([]time.Time, nReduce),
 		mutex: &sync.Mutex{},

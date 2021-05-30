@@ -25,9 +25,9 @@ type ExampleReply struct {
 type TaskType int
 
 const (
-	MapTask = TaskType(1)
-	ReduceTask = TaskType(2)
-	DoneTask = TaskType(3)
+	MapTask TaskType = 1
+	ReduceTask TaskType = 2
+	DoneTask TaskType = 3
 )
 
 // Add your RPC definitions here.
@@ -36,13 +36,14 @@ type GetTaskArg struct {}
 
 type GetTaskResp struct {
 	TaskType TaskType
+	// task id of map/reduce task
 	TaskId int
-	// map work需要读的文件
+	// need to map tasks
+	NReduceTasks int
+	// need to reduce tasks
+	NMapTasks int
+	// map filename
 	MapFile string
-	// map 需要写入的文件
-	WriteMapTask int
-	// reduce 读几个中间文件
-	ReduceIntermediaTasks int
 }
 
 // 任务结束通知

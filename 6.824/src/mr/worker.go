@@ -45,7 +45,7 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-func mapTask(mapf func(string,string) []KeyValue, mWorkers, rWorkers int, filename string) {
+func mapTask(filename string, taskNum int, nReduceTasks int, mapf func(string,string)[]KeyValue) {
 	// read file
 	file, err := os.Open(filename)
 	if err != nil {
@@ -64,7 +64,7 @@ func mapTask(mapf func(string,string) []KeyValue, mWorkers, rWorkers int, filena
 	tmpFiles := []*os.File{}
 	tmpFileNames := []string{}
 	encoder := []*json.Encoder{}
-	for r := 0; r < rWorkers; r++ {
+	for r := 0; r < nReduceTasks; r++ {
 		tmpFile, err := ioutil.TempFile("","")
 		if err != nil {
 			DLog("can not create tmpfile")
@@ -78,7 +78,7 @@ func mapTask(mapf func(string,string) []KeyValue, mWorkers, rWorkers int, filena
 	// 将map的文件写入到临时文件中去
 	for _, item := range kv {
 		// 有n个reduce worker，就需要取模
-		r := ihash(item.Key) % rWorkers
+		r := ihash(item.Key) % nReduceTasks
 		encoder[r].Encode(&item)
 	}
 	// 关闭临时文件
@@ -86,35 +86,36 @@ func mapTask(mapf func(string,string) []KeyValue, mWorkers, rWorkers int, filena
 		tmp.Close()
 	}
 	// rename
-	for r := 0; r < rWorkers; r++ {
-		reName(tmpFileNames[r], mWorkers, r)
+	for r := 0; r < nReduceTasks; r++ {
+		finalizeIntermediateFile(tmpFileNames[r], taskNum, r)
 	}
 }
 
-func reduceTask(reducef func(string, []string) string, mWorkders, rWorkers int) {
+func reduceTask(taskNum int, nMapTasks int, reducef func(string, []string) string) {
 	// 获取所有kv
 	kvs := []KeyValue{}
-	for m := 0; m < mWorkders; m++ {
-		rFileName := getIntermediateFile(m, rWorkers)
+	for m := 0; m < nMapTasks; m++ {
+		rFileName := getIntermediateFile(m, taskNum)
 		rfile, err := os.Open(rFileName)
 		if err != nil {
-			DLog("open rfile error(%+v)", err)
-			return
+			log.Fatal("Open reduce File error")
 		}
 		dec := json.NewDecoder(rfile)
 		for {
 			var kv KeyValue
 			if err = dec.Decode(&kv); err != nil {
+				log.Printf("Reduce task decode kv(%v) error(%v)", kv, err)
 				break
 			}
 			kvs = append(kvs, kv)
 		}
+		rfile.Close()
 	}
 	// reduce key
 	sort.Sort(ByKey(kvs))
 	tmpFile, err := ioutil.TempFile("", "")
 	if err != nil {
-		DLog("create reduce tmp file error(%+v)", err)
+		log.Fatal("Reduce Open File error")
 		return
 	}
 	tmpFileName := tmpFile.Name()
@@ -133,8 +134,8 @@ func reduceTask(reducef func(string, []string) string, mWorkders, rWorkers int) 
 		fmt.Fprintf(tmpFile, "%v %v\n", kvs[keyStart].Key, output)
 		keyStart = keyEnd
 	}
-	renameReduceFile(tmpFileName, rWorkers)
-	tmpFile.Close()
+	finalizeReduceFile(tmpFileName, taskNum)
+	//tmpFile.Close()
 }
 
 
@@ -152,16 +153,18 @@ func Worker(mapf func(string, string) []KeyValue,
 		taskArg := GetTaskArg{}
 		taskReply := GetTaskResp{}
 		call("Coordinator.HandleAssignTask", &taskArg, &taskReply)
+		//log.Printf("Worker Get TaskID(%d) TaskType(%v)", taskReply.TaskId, taskReply.TaskType)
 		switch taskReply.TaskType {
 		case MapTask:
-			mapTask(mapf, taskReply.TaskId, taskReply.ReduceIntermediaTasks, taskReply.MapFile)
+			//log.Printf("Woker Assign Map Task")
+			mapTask(taskReply.MapFile, taskReply.TaskId, taskReply.NReduceTasks, mapf)
 		case ReduceTask:
-			reduceTask(reducef, taskReply.WriteMapTask, taskReply.ReduceIntermediaTasks)
+			//log.Printf("Woker Assign Reduce Task")
+			reduceTask(taskReply.TaskId, taskReply.NMapTasks, reducef)
 		case DoneTask:
 			os.Exit(0)
 		default:
-			DLog("Invalid Task Type: %d", taskReply.TaskType)
-			return
+			fmt.Errorf("Bad TaskType: %v", taskReply.TaskType)
 		}// 任务完成
 		finishArg := TaskFinishArg{
 			TaskType: taskReply.TaskType,

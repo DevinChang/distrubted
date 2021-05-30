@@ -16,20 +16,20 @@ type Coordinator struct {
 	// map files
 	mapFiles []string
 	// number of map worker and reduce worker
-	mapWorkers int `json:"-"`
-	reduceWorkers int `json:"-"`
+	nMapTasks int `json:"-"`
+	nReduceTasks int `json:"-"`
 	// map worker
-	mapWorkerDone []bool `json:"-"`
+	mapTaskDone []bool `json:"-"`
 	// 用time.time可以用来进行时间上的控制
-	mapWorkerRest []time.Time `json:"-"`
+	mapTaskIssued []time.Time `json:"-"`
 	// reduce worker
-	reduceWorkerDone []bool `json:"-"`
+	reduceTaskDone []bool `json:"-"`
 	// 用time.time可以用来进行时间上的控制
-	reduceWorkerRest []time.Time `json:"-"`
+	reduceTaskIssued []time.Time `json:"-"`
 	// 结束标志
 	shutdown bool `json:"-"`
 	// mutex
-	mutex *sync.Mutex
+	mutex sync.Mutex
 	// condition
 	cond *sync.Cond
 }
@@ -78,21 +78,24 @@ func (c *Coordinator) HandleAssignTask(req *GetTaskArg, reply *GetTaskResp) (err
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	// 返回有多少map worker和reduce worker，用于临时文件的生成
-	reply.ReduceIntermediaTasks = c.reduceWorkers
-	reply.WriteMapTask = c.mapWorkers
+	reply.NReduceTasks = c.nReduceTasks
+	reply.NMapTasks = c.nMapTasks
 	// 先分配map work
 	for {
 		mapDone := true
 		// 遍历所有worker，给已完成任务的worker分配任务
-		for m, done := range c.mapWorkerDone {
+		for m, done := range c.mapTaskDone {
 			//
 			if !done {
-				if c.mapWorkerRest[m].IsZero() || time.Since(c.mapWorkerRest[m]).Seconds() > 10 {
+				if c.mapTaskIssued[m].IsZero() || time.Since(c.mapTaskIssued[m]).Seconds() > 10 {
 					reply.TaskType = MapTask
 					reply.TaskId = m
 					reply.MapFile = c.mapFiles[m]
-					c.mapWorkerRest[m] = time.Now()
+					c.mapTaskIssued[m] = time.Now()
+					//log.Printf("Coordinator Assign MapTask TaskID(%d)", m)
 					return nil
+				} else {
+					mapDone = false
 				}
 			}
 
@@ -109,12 +112,14 @@ func (c *Coordinator) HandleAssignTask(req *GetTaskArg, reply *GetTaskResp) (err
 	for {
 		reduceDone := true
 		// 遍历所有worker，给已完成任务的worker分配任务
-		for r, done := range c.reduceWorkerDone {
+		for r, done := range c.reduceTaskDone {
 			if !done {
-				if c.reduceWorkerRest[r].IsZero() || time.Since(c.reduceWorkerRest[r]).Seconds() > 10 {
+				if c.reduceTaskIssued[r].IsZero() || time.Since(c.reduceTaskIssued[r]).Seconds() > 10 {
 					reply.TaskType = ReduceTask
 					reply.TaskId = r
-					c.reduceWorkerRest[r] = time.Now()
+					c.reduceTaskIssued[r] = time.Now()
+					//log.Printf("Coordinator Assign Reduce TaskID(%d)", r)
+					return
 				} else {
 					reduceDone = false
 				}
@@ -141,11 +146,11 @@ func (c *Coordinator) HandleFinishedTask(req *TaskFinishArg, reply *TaskFinished
 	defer c.mutex.Unlock()
 	switch req.TaskType {
 	case MapTask :
-		c.mapWorkerDone[req.TaskId] = true
+		c.mapTaskDone[req.TaskId] = true
 	case ReduceTask:
-		c.reduceWorkerDone[req.TaskId] = true
+		c.reduceTaskDone[req.TaskId] = true
 	default:
-		DLog("Invalid TaskType:%d", req.TaskType)
+		log.Fatal("Invalid TaskType %v", req.TaskType)
 	}
 	c.cond.Broadcast()
 	return
@@ -157,18 +162,18 @@ func (c *Coordinator) HandleFinishedTask(req *TaskFinishArg, reply *TaskFinished
 // nReduce is the number of reduce tasks to use.
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
-	mWorkers := len(files)
 	c := Coordinator{
-		mapWorkers: mWorkers,
-		reduceWorkers: nReduce,
-		mapWorkerDone: make([]bool, mWorkers),
-		mapWorkerRest: make([]time.Time, mWorkers),
 		mapFiles: files,
-		reduceWorkerDone: make([]bool, nReduce),
-		reduceWorkerRest: make([]time.Time, nReduce),
-		mutex: &sync.Mutex{},
+		nMapTasks: len(files),
+		mapTaskDone: make([]bool, len(files)),
+		mapTaskIssued: make([]time.Time, len(files)),
+		nReduceTasks: nReduce,
+		reduceTaskDone: make([]bool, nReduce),
+		reduceTaskIssued: make([]time.Time, nReduce),
+		mutex: sync.Mutex{},
 	}
-	c.cond = sync.NewCond(c.mutex)
+	c.cond = sync.NewCond(&c.mutex)
+	log.Printf("Start Coordinator")
 	go func() {
 		for {
 			c.mutex.Lock()

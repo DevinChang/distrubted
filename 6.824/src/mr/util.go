@@ -6,26 +6,25 @@ import (
 	"os"
 )
 
-func DLog(format string, a ...interface{}) (n int, err error) {
+func DLog(format string, a ...interface{}) {
 	log.Printf(format, a...)
 	return
 }
 
-
-func interName(mWorker, rWorker int) string {
-	return fmt.Sprintf("mr-%d-%d", mWorker, rWorker)
+func finalizeReduceFile(tmpFile string, taskN int){
+	finalFile := fmt.Sprintf("mr-out-%d", taskN)
+	os.Rename(tmpFile, finalFile)
 }
 
-func reName(tmpFile string, mWorker, rWorker int) {
-	key := interName(mWorker, rWorker)
-	os.Rename(tmpFile, key)
+func getIntermediateFile(mapTaskN int, reduceTaskN int) string{
+	return fmt.Sprintf("mr-%d-%d", mapTaskN, reduceTaskN)
 }
 
-func getIntermediateFile(mWorker, rWorker int) string {
-	return fmt.Sprintf("mr-%d-%d", mWorker, rWorker)
+func finalizeIntermediateFile(tmpFile string, mapTaskN int, reduceTaskN int){
+	finalFile := getIntermediateFile(mapTaskN, reduceTaskN)
+	os.Rename(tmpFile, finalFile)
 }
 
-func renameReduceFile(rName string, rWorker int) {
-	reduceFileName := fmt.Sprintf("mr-out-%d", rWorker)
-	os.Rename(rName, reduceFileName)
-}
+
+
+

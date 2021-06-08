@@ -21,8 +21,9 @@ import (
 //	"bytes"
 	"sync"
 	"sync/atomic"
+	"time"
 
-//	"6.824/labgob"
+	//	"6.824/labgob"
 	"6.824/labrpc"
 )
 
@@ -50,6 +51,14 @@ type ApplyMsg struct {
 	SnapshotIndex int
 }
 
+type ElectState int
+
+const (
+	Leader ElectState = 1
+	Candidate ElectState = 2
+	Follower ElectState = 3
+)
+
 //
 // A Go object implementing a single Raft peer.
 //
@@ -63,8 +72,9 @@ type Raft struct {
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
-
-
+	electTimer time.Timer //  election time
+	curTerm int  // current term
+	state ElectState // server state
 }
 
 // return currentTerm and whether this server
@@ -273,6 +283,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here (2A, 2B, 2C).
+	rf.electTimer = time.Timer{}
+	rf.curTerm = 0
+	rf.state = Follower
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())

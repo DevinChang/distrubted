@@ -18,7 +18,9 @@ package raft
 //
 
 import (
-//	"bytes"
+	"math/rand"
+
+	//	"bytes"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -57,6 +59,7 @@ const (
 	Leader ElectState = 1
 	Candidate ElectState = 2
 	Follower ElectState = 3
+	ElectionTimeout = time.Duration(time.Second * 3)
 )
 
 //
@@ -72,7 +75,7 @@ type Raft struct {
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
-	electTimer time.Timer //  election time
+	electTimer time.Time //  election time
 	curTerm int  // current term
 	state ElectState // server state
 }
@@ -252,6 +255,34 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
+func (rf *Raft) startElection() {
+
+}
+
+func (rf *Raft) setElectionTime() {
+	t := time.Now()
+	t.Add(ElectionTimeout)
+	ms := rand.Int63() % 300
+	t.Add(time.Duration(ms) * time.Millisecond)
+	rf.electTimer = t
+}
+
+func (rf *Raft) tick() {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	// leader
+	if rf.state == Leader {
+		// 重置时间
+	}
+	// 判断是否开始选举
+	if time.Now().After(rf.electTimer) {
+		// 重置时间
+		rf.setElectionTime()
+		// 开始选举
+		rf.startElection()
+	}
+}
+
 // The ticker go routine starts a new election if this peer hasn't received
 // heartsbeats recently.
 func (rf *Raft) ticker() {
@@ -260,7 +291,9 @@ func (rf *Raft) ticker() {
 		// Your code here to check if a leader election should
 		// be started and to randomize sleeping time using
 		// time.Sleep().
-
+		rf.tick()
+		ms := 50
+		time.Sleep(time.Millisecond * time.Duration(ms))
 	}
 }
 
@@ -283,9 +316,10 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here (2A, 2B, 2C).
-	rf.electTimer = time.Timer{}
 	rf.curTerm = 0
 	rf.state = Follower
+
+	rf.setElectionTime()
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())

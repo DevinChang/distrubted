@@ -78,6 +78,7 @@ type Raft struct {
 	electTimer time.Time //  election time
 	curTerm int  // current term
 	state ElectState // server state
+	votedFor int
 }
 
 // return currentTerm and whether this server
@@ -151,12 +152,39 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 }
 
 
+type AppendEntriesArgs struct {
+	term int
+	leaderId int
+	prevLogIndex int
+}
+
+type AppendEntriesReply struct {
+	currentTerm int
+	success bool
+}
+
+
+func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
+
+	return false
+}
+
+func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
+	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
+	return ok
+}
+
+
 //
 // example RequestVote RPC arguments structure.
 // field names must start with capital letters!
 //
 type RequestVoteArgs struct {
 	// Your data here (2A, 2B).
+	term int
+	candidateId int
+	lastLogIdx int
+	lastLogTerm int
 }
 
 //
@@ -165,6 +193,8 @@ type RequestVoteArgs struct {
 //
 type RequestVoteReply struct {
 	// Your data here (2A).
+	curTerm int
+	voteGranted bool
 }
 
 //
@@ -172,6 +202,21 @@ type RequestVoteReply struct {
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if args.term > rf.curTerm {
+		rf.newTerm(args.term)
+	}
+	// rule 1
+	if args.term < rf.curTerm {
+		reply.voteGranted = false
+	} else if rf.votedFor == -1 || rf.votedFor == args.candidateId {
+		reply.voteGranted = true
+		rf.votedFor = args.candidateId
+	} else {
+		reply.voteGranted = true
+	}
+	reply.curTerm = rf.curTerm
 }
 
 //
@@ -255,8 +300,104 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
-func (rf *Raft) startElection() {
+func (rf *Raft) processAppendEntriesL(peer int, args *AppendEntriesArgs, reply *AppendEntriesReply) {
 
+}
+
+func (rf *Raft) processAppendEntries(peer int, args *AppendEntriesArgs, reply *AppendEntriesReply) {
+	if reply.currentTerm > rf.curTerm {
+		rf.newTerm(reply.currentTerm)
+	} else if args.term == rf.curTerm {
+		rf.processAppendEntriesL(peer, args, reply)
+	}
+}
+
+
+func (rf *Raft) sendAppends(peer int, heartBeat bool) {
+	args := AppendEntriesArgs{
+		term: rf.curTerm,
+		leaderId: rf.me,
+	}
+	go func() {
+		var reply AppendEntriesReply
+		if ok := rf.sendAppendEntries(peer, &args, &reply); ok {
+			rf.mu.Lock()
+			defer rf.mu.Unlock()
+		}
+	}()
+}
+
+
+func (rf *Raft) sendAppend(hearBeat bool) {
+	if hearBeat {
+		for i := 0; i < len(rf.peers); i++ {
+			if i != rf.me {
+				rf.sendAppends(i, hearBeat)
+			}
+		}
+	}
+}
+
+
+func (rf *Raft) setCandidate() {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	rf.state = Candidate
+	rf.curTerm += 1
+	rf.votedFor = rf.me
+}
+
+
+func (rf *Raft) newTerm(term int) {
+	rf.curTerm = term
+	rf.votedFor = -1
+	rf.state = Follower
+}
+
+func (rf *Raft) becomeLeader() {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	rf.state = Leader
+}
+
+
+
+func (rf *Raft) sendRequests(peer int, args *RequestVoteArgs, voted *int) {
+	reply := RequestVoteReply{}
+	if ok := rf.sendRequestVote(peer, args, &reply); ok {
+		rf.mu.Lock()
+		defer rf.mu.Unlock()
+
+		if rf.curTerm < reply.curTerm {
+			rf.newTerm(reply.curTerm)
+		} else {
+			if reply.voteGranted {
+				*voted += 1
+				if *voted > len(rf.peers) / 2 {
+					rf.becomeLeader()
+					rf.sendAppend(true)
+				}
+			}
+		}
+	}
+}
+
+func (rf *Raft) requestVote() {
+	args := RequestVoteArgs{
+		term: rf.curTerm,
+		candidateId: rf.me,
+	}
+	voted := 1
+	for i := 0; i < len(rf.peers); i++ {
+		if i != rf.me {
+			go rf.sendRequests(i, &args, &voted)
+		}
+	}
+}
+
+func (rf *Raft) startElection() {
+	rf.setCandidate()
+	rf.requestVote()
 }
 
 func (rf *Raft) setElectionTime() {
@@ -273,6 +414,8 @@ func (rf *Raft) tick() {
 	// leader
 	if rf.state == Leader {
 		// 重置时间
+		rf.setElectionTime()
+		rf.sendAppend(true)
 	}
 	// 判断是否开始选举
 	if time.Now().After(rf.electTimer) {
